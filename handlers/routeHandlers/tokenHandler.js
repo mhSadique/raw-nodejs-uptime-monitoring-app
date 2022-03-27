@@ -168,4 +168,18 @@ handler._token.delete = (requestProperties, callback) => {
     }
 };
 
+handler._token.verify = (tokenId, phone, callback) => {
+    data.read('tokens', tokenId, (err, tokenData) => {
+        if (!err && tokenData) {
+            if (parseJSON(tokenData).phone === phone && parseJSON(tokenData).expiresIn) {
+                callback(true);
+            } else {
+                callback(false);
+            }
+        } else {
+            callback(false);
+        }
+    })
+};
+
 module.exports = handler;

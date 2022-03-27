@@ -8,6 +8,7 @@
 const handler = {};
 const { hash, parseJSON } = require('../../helpers/utilities');
 const data = require('../../lib/data');
+const tokenHandler = require('./tokenHandler');
 
 handler.userHandler = (requestProperties, callback) => {
     const acceptedMethods = ['get', 'post', 'put', 'delete'];
@@ -83,7 +84,6 @@ handler._users.post = (requestProperties, callback) => {
     }
 };
 
-// IMPLEMENT AUTHENTICATION
 // method that will be called for 'get' method
 handler._users.get = (requestProperties, callback) => {
     const phone =
@@ -92,14 +92,26 @@ handler._users.get = (requestProperties, callback) => {
             ? requestProperties.queryStringObject.phone
             : false;
     if (phone) {
-        // lookup the user
-        data.read('users', phone, (err, u) => {
-            const user = { ...parseJSON(u) };
-            if (!err && user) {
-                delete user.password;
-                callback(200, user);
+        // verify token
+        let token = typeof (requestProperties.headersObject.token) === 'string' ?
+            requestProperties.headersObject.token : false;
+
+        tokenHandler._token.verify(token, phone, (tokenId) => {
+            if (tokenId) {
+                // lookup the user
+                data.read('users', phone, (err, u) => {
+                    const user = { ...parseJSON(u) };
+                    if (!err && user) {
+                        delete user.password;
+                        callback(200, user);
+                    } else {
+                        callback(404, { error: 'Requested user was not found!' })
+                    }
+                })
             } else {
-                callback(404, { error: 'Requested user was not found!' })
+                callback(403, {
+                    error: 'Authentication failure!'
+                })
             }
         })
     } else {
@@ -107,7 +119,6 @@ handler._users.get = (requestProperties, callback) => {
     }
 };
 
-// IMPLEMENT AUTHENTICATION
 // method that will be called for 'put' method
 handler._users.put = (requestProperties, callback) => {
     // we do not include tosAgreement because it it actually not changed
@@ -134,32 +145,46 @@ handler._users.put = (requestProperties, callback) => {
 
     if (phone) {
         if (firstName || lastName || password) {
-            // look up the user
-            data.read('users', phone, (err1, uData) => {
-                const userData = { ...parseJSON(uData) };
 
-                // if the user is found, update it
-                if (!err1 && userData) {
-                    if (firstName) {
-                        userData.firstName = firstName;
-                    }
-                    if (lastName) {
-                        userData.lastName = lastName;
-                    }
-                    if (password) {
-                        userData.password = hash(firstName);
-                    }
+            // verify token
+            let token = typeof (requestProperties.headersObject.token) === 'string' ?
+                requestProperties.headersObject.token : false;
 
-                    // now store the user to database
-                    data.update('users', phone, userData, (err2) => {
-                        if (!err2) {
-                            callback(200, { message: 'User was updated successfully.' })
+            tokenHandler._token.verify(token, phone, (tokenId) => {
+                if (tokenId) {
+                    // look up the user
+                    data.read('users', phone, (err1, uData) => {
+                        const userData = { ...parseJSON(uData) };
+
+                        // if the user is found, update it
+                        if (!err1 && userData) {
+                            if (firstName) {
+                                userData.firstName = firstName;
+                            }
+                            if (lastName) {
+                                userData.lastName = lastName;
+                            }
+                            if (password) {
+                                userData.password = hash(firstName);
+                            }
+
+                            // now store the user to database
+                            data.update('users', phone, userData, (err2) => {
+                                if (!err2) {
+                                    callback(200, { message: 'User was updated successfully.' })
+                                } else {
+                                    callback(500, { error: 'There was a problem in the server.' });
+                                }
+                            })
                         } else {
-                            callback(500, { error: 'There was a problem in the server.' });
+                            callback(400, { error: 'You have a problem in your request.' });
                         }
                     })
+
                 } else {
-                    callback(400, { error: 'You have a problem in your request.' });
+                    callback(403, {
+                        error: 'Authentication failure!'
+                    })
                 }
             })
         } else {
@@ -171,7 +196,8 @@ handler._users.put = (requestProperties, callback) => {
 
 };
 
-// IMPLEMENT AUTHENTICATION
+// ??????? ####### You will find a bug when you delete a user
+// BUG IS:  Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
 // method that will be called for 'delete' method
 handler._users.delete = (requestProperties, callback) => {
     const phone =
@@ -180,6 +206,38 @@ handler._users.delete = (requestProperties, callback) => {
             ? requestProperties.queryStringObject.phone
             : false;
     if (phone) {
+        // verify token
+        let token = typeof (requestProperties.headersObject.token) === 'string' ?
+            requestProperties.headersObject.token : false;
+
+        tokenHandler._token.verify(token, phone, (tokenId) => {
+            if (tokenId) {
+                // lookup the user
+                data.read('users', phone, (err1, userData) => {
+                    if (!err1 && userData) {
+                        data.delete('users', phone, (err2) => {
+                            if (!err2) {
+                                callback(200, {
+                                    message: 'User deleted successfully!'
+                                })
+                            } else {
+                                callback(500, {
+                                    error: 'There was a server side error!'
+                                })
+                            }
+                        })
+                    } else {
+                        callback(500, {
+                            error: 'There was a problem in your request!!'
+                        })
+                    }
+                })
+            } else {
+                callback(403, {
+                    error: 'Authentication failure!'
+                })
+            }
+        })
         data.read('users', phone, (err1, userData) => {
             if (!err1 && userData) {
                 data.delete('users', phone, (err2) => {
